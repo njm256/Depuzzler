@@ -8,7 +8,6 @@ import kotlin.math.*
 
 fun detectEdges() {
     val img = imread("board.jpg")
-    /*
     var imgGrey = Mat()
     cvtColor(img, imgGrey, COLOR_BGR2GRAY)
     var edges = Mat()
@@ -24,20 +23,22 @@ fun detectEdges() {
         }
         imwrite("board_lines_" + i + ".jpg", newImg)
     }
-    */
-    for (i in 0 until img.cols() step 100) {
-        line(img, Point(i.toDouble(), 0.0), Point(i.toDouble(), img.rows() - 1.0), Scalar(0.0, 0.0, 255.0), 15)
-    }
-    imwrite("board_lines.jpg", img)
 }
+/*
+for (i in 0 until img.cols() step 100) {
+    line(img, Point(i.toDouble(), 0.0), Point(i.toDouble(), img.rows() - 1.0), Scalar(0.0, 0.0, 255.0), 15)
+}
+imwrite("board_lines.jpg", img)
+}
+*/
 
 fun houghLine(img: Mat, r: Double, theta: Double, color: Scalar, thickness: Int): Unit {
-    val p1 : Point
-    val p2 : Point
+    val p1: Point
+    val p2: Point
     val xint = r / cos(theta)
     val yint = r / sin(theta)
     if (theta < PI / 2.0) {
-        if (yint < 0) {
+        if (yint < 0.0) {
             println("r: {r}, theta: {theta}, yint: {yint}")
             p1 = Point(0.0, 0.0)
         } else if (yint < img.rows()) {
@@ -52,13 +53,30 @@ fun houghLine(img: Mat, r: Double, theta: Double, color: Scalar, thickness: Int)
         } else if (xint < img.cols()) {
             p2 = Point(xint, 0.0)
         } else { // xint >= img.cols()
-            p2 = Point(img.cols() - 1.0, yint - (img.cols() - 1.0)/tan(theta))
+            p2 = Point(img.cols() - 1.0, yint - (img.cols() - 1.0) / tan(theta))
         }
     } else {
         if (yint < 0) {
-            p1 = Point(xint ,0.0)
-        } else if (yint < img.rows())
-    }
+            p1 = Point(xint, 0.0)
+        } else if (yint < img.rows()) {
+            p1 = Point(0.0, yint)
+        } else { //yint >= img.rows()
+            println("r: {r}, theta: {theta}, yint: {yint}")
+            p1 = Point(0.0, 0.0)
+        }
 
+        val oyint = yint - (img.cols() - 1.0) / tan(theta)
+        if (oyint < 0) {
+            println("r: {r}, theta: {theta}, wtf.")
+            p2 = Point(0.0, 0.0)
+        } else if (oyint < img.rows()) {
+            p2 = Point(img.cols() - 1.0, oyint)
+        } else {
+            p2 = Point(xint - tan(theta) * (img.cols() - 1.0), img.rows() - 1.0)
+        }
+    }
     line(img, p1, p2, color, thickness)
 }
+
+
+
