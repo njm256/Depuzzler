@@ -133,20 +133,19 @@ fun blurGrey(img : Mat, kernel : Double, str : String) {
 h is the height of the original image, which is 2 * d for d the diagonal, i.e., 2 * sqrt(img.rows()^2+img.cols()^2)
 newSize shouldn't be changed atm.
  */
-fun normalizeHSpace(lines : Mat, h : Double, newSize : Int = 180) : Mat {
-    val newLines = lines.clone()
-    for (i in 0 until lines.rows()) {
-        newLines[i, 0][0] = lines[i, 0][0] / h * newSize
-        newLines[i, 0][1] = lines[i, 0][1] * newSize / PI
-    }
-    return newLines
+fun normalizeHLine(r : Double, theta : Double, h : Double, newSize : Int = 180) : DoublePoint
+    = DoublePoint(doubleArrayOf(r / h * newSize, theta * newSize / PI))
+
+fun normalizeHSpace(lines : Mat, h : Double, newSize : Int = 180) : List<DoublePoint>
+    = pointList(lines).map { normalizeHLine(it.point[0], it.point[1], h, newSize) }
+
+fun denormalizeHLine(r : Double, theta : Double, h : Double, normalized : Int = 180) : DoublePoint {
+    println("denormalized ${r}, ${theta} to ${r / normalized.toDouble() * h}, ${theta * PI / normalized}")
+    return DoublePoint(doubleArrayOf(r / normalized.toDouble() * h, theta * PI / normalized))
 }
 
-fun denormalizeHLine(r : Double, theta: Double,  h : Double, normalized : Int = 180) : DoublePoint = DoublePoint(doubleArrayOf(r / normalized.toDouble() * h, theta * PI / normalized))
-
-fun denormalizeHSpace(lines : List<DoublePoint>, h : Double, normalized : Int = 180) : List<DoublePoint> {
-    return lines.map { DoublePoint(doubleArrayOf(it.point[0] / normalized.toDouble() * h, it.point[1] * PI / normalized)) }
-}
+fun denormalizeHSpace(lines : List<DoublePoint>, h : Double, normalized : Int = 180) : List<DoublePoint>
+    = lines.map { denormalizeHLine(it.point[0], it.point[1], h, normalized) }
 
 fun pointList(lines : Mat) : MutableList<DoublePoint> {
     val lineArray = mutableListOf<DoublePoint>()
@@ -154,12 +153,11 @@ fun pointList(lines : Mat) : MutableList<DoublePoint> {
     return lineArray
 }
 
-fun findClusters(lines : Mat) : MutableList<CentroidCluster<DoublePoint>>
-        = KMeansPlusPlusClusterer<DoublePoint>(2).cluster(pointList(lines))
+fun findClusters(lines : List<DoublePoint>) : MutableList<CentroidCluster<DoublePoint>>
+        = KMeansPlusPlusClusterer<DoublePoint>(2).cluster(lines)
 
-fun DoublePoint.dist(other : DoublePoint) : Double {
-    return sqrt((this.point[0] - other.point[0]).pow(2) + (this.point[1] - other.point[1]).pow(2))
-}
+fun DoublePoint.dist(other : DoublePoint) : Double
+    = sqrt((this.point[0] - other.point[0]).pow(2) + (this.point[1] - other.point[1]).pow(2))
 
 fun sgn(x : Double) : Int = when {
         x == 0.0 -> 0

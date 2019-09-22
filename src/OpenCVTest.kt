@@ -27,21 +27,14 @@ fun main(args : Array<String>) {
     //detectEdges(img, "imgs/bwboard")
     val lines = getHoughLines(img, 285)
     val h = sqrt(img.rows().toDouble().pow(2) + img.cols().toDouble().pow(2))
-    //val nlines = normalizeHSpace(lines, h)
-    println("finding clusters")
-    //val clusters = findClusters(nlines)
-    val clusters = findClusters(lines)
-    println("found ${clusters.size} clusters")
+    val nlines = normalizeHSpace(lines, h)
+    val clusters = findClusters(nlines)
     for (nl in clusters[0].points) {
-        //val l = denormalizeHLine(nl.point[0], nl.point[1], h)
-        val l = nl
-        println("drawing line in cluster 0: ${l.point[0]}, ${l.point[1]}")
+        val l = denormalizeHLine(nl.point[0], nl.point[1], h)
         houghLine(img, l.point[0], l.point[1], Scalar(0.0, 0.0, 255.0), 10)
     }
     for (nl in clusters[1].points) {
-        val l = nl
-        //val l = denormalizeHLine(nl.point[0], nl.point[1], h)
-        println("drawing line in cluster 1: ${l.point[0]}, ${l.point[1]}")
+        val l = denormalizeHLine(nl.point[0], nl.point[1], h)
         houghLine(img, l.point[0], l.point[1], Scalar(255.0, 0.0, 0.0), 10)
     }
     imwrite("imgs/bwboard.jpg", img)
