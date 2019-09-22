@@ -48,7 +48,7 @@ fun getHoughLines(img : Mat, threshold : Int) : Mat {
     blur(imgGrey, imgGrey, Size(2.0, 2.0))
     Canny(imgGrey, edges, 255.0 / 3.0, 255.0)
     val lines = Mat()
-    HoughLines(edges, lines, 1.0, PI / 180, threshold)
+    HoughLines(edges, lines, 10.0, 15 * PI / 180, threshold)
     return lines
 }
 
@@ -114,12 +114,12 @@ fun houghLine(img: Mat, r: Double, theta: Double, color: Scalar, thickness: Int)
 }
 
 fun houghLineP(img : Mat, x1 : Double, y1 : Double, x2 : Double, y2 : Double, color : Scalar, thickness : Int)
-    = line(img, Point(x1, y1), Point(x2, y2), color, thickness)
+        = line(img, Point(x1, y1), Point(x2, y2), color, thickness)
 
 
 fun intersection(r1 : Double, theta1 : Double, r2 : Double, theta2 : Double)
-    = Point((r1 * sin(theta2) - r2 * sin(theta1)) / sin(theta2 - theta1)
-           ,(r1 * cos(theta2) + r2 * cos(theta1)) / sin(theta1 - theta2))
+        = Point((r1 * sin(theta2) - r2 * sin(theta1)) / sin(theta2 - theta1)
+    ,(r1 * cos(theta2) + r2 * cos(theta1)) / sin(theta1 - theta2))
 
 fun blurGrey(img : Mat, kernel : Double, str : String) {
     val imgGrey = Mat()
@@ -134,18 +134,16 @@ h is the height of the original image, which is 2 * d for d the diagonal, i.e., 
 newSize shouldn't be changed atm.
  */
 fun normalizeHLine(r : Double, theta : Double, h : Double, newSize : Int = 180) : DoublePoint
-    = DoublePoint(doubleArrayOf(r / h * newSize, theta * newSize / PI))
+        = DoublePoint(doubleArrayOf(r / h * newSize, theta * newSize / PI))
 
 fun normalizeHSpace(lines : Mat, h : Double, newSize : Int = 180) : List<DoublePoint>
-    = pointList(lines).map { normalizeHLine(it.point[0], it.point[1], h, newSize) }
+        = pointList(lines).map { normalizeHLine(it.point[0], it.point[1], h, newSize) }
 
-fun denormalizeHLine(r : Double, theta : Double, h : Double, normalized : Int = 180) : DoublePoint {
-    println("denormalized ${r}, ${theta} to ${r / normalized.toDouble() * h}, ${theta * PI / normalized}")
-    return DoublePoint(doubleArrayOf(r / normalized.toDouble() * h, theta * PI / normalized))
-}
+fun denormalizeHLine(r : Double, theta : Double, h : Double, normalized : Int = 180) : DoublePoint
+        = DoublePoint(doubleArrayOf(r / normalized.toDouble() * h, theta * PI / normalized))
 
 fun denormalizeHSpace(lines : List<DoublePoint>, h : Double, normalized : Int = 180) : List<DoublePoint>
-    = lines.map { denormalizeHLine(it.point[0], it.point[1], h, normalized) }
+        = lines.map { denormalizeHLine(it.point[0], it.point[1], h, normalized) }
 
 fun pointList(lines : Mat) : MutableList<DoublePoint> {
     val lineArray = mutableListOf<DoublePoint>()
@@ -157,18 +155,21 @@ fun findClusters(lines : List<DoublePoint>) : MutableList<CentroidCluster<Double
         = KMeansPlusPlusClusterer<DoublePoint>(2).cluster(lines)
 
 fun DoublePoint.dist(other : DoublePoint) : Double
-    = sqrt((this.point[0] - other.point[0]).pow(2) + (this.point[1] - other.point[1]).pow(2))
+        = sqrt((this.point[0] - other.point[0]).pow(2) + (this.point[1] - other.point[1]).pow(2))
 
 fun sgn(x : Double) : Int = when {
-        x == 0.0 -> 0
-        x > 0.0 -> 1
-        else -> -1
-    }
+    x == 0.0 -> 0
+    x > 0.0 -> 1
+    else -> -1
+}
 
 data class ClusterPt(val pt  : DoublePoint, val center : DoublePoint) : Comparable<ClusterPt> {
     override operator fun compareTo(other : ClusterPt) = sgn(pt.dist(center) - other.pt.dist(other.center))
+    val size : Double
+        get() = pt.dist(center)
 }
 
+/*
 fun prune(pts : MutableList<CentroidCluster<DoublePoint>>, n : Int): List<DoublePoint> {
     return pts.flatMap { cluster -> cluster.points.map {
         ClusterPt(pt = it, center = DoublePoint(cluster.center.point))
@@ -195,3 +196,14 @@ fun pruneLimit(clusters : MutableList<CentroidCluster<DoublePoint>>, n : Int, li
     }
     return ptlist.map { it.pt }
 }
+ */
+fun meanDist(pts : List<ClusterPt>) : Double = pts.map { it.size }.average()
+fun meanDist(pts : CentroidCluster<DoublePoint>) : Double
+        = meanDist(pts.points.map { ClusterPt(it, DoublePoint(pts.center.point)) })
+
+fun pruneCP(pts : List<ClusterPt>, cutoff : Double) : List<ClusterPt> = pts.filter { it.size <= cutoff }
+fun pruneCP(pts : CentroidCluster<DoublePoint>, cutoff : Double) : List<ClusterPt>
+        = pruneCP(pts.points.map { ClusterPt(it, DoublePoint(pts.center.point)) }, cutoff)
+
+fun prune(pts : List<ClusterPt>, cutoff : Double) : List<DoublePoint> = pruneCP(pts, cutoff).map { it.pt }
+fun prune(pts : CentroidCluster<DoublePoint>, cutoff : Double) : List<DoublePoint> = pruneCP(pts, cutoff).map { it.pt }
