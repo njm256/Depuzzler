@@ -1,7 +1,9 @@
 import org.apache.commons.math3.ml.clustering.CentroidCluster
 import org.apache.commons.math3.ml.clustering.DoublePoint
 import org.apache.commons.math3.ml.clustering.KMeansPlusPlusClusterer
+import org.opencv.calib3d.Calib3d.findHomography
 import org.opencv.core.*
+import org.opencv.core.Core.perspectiveTransform
 import org.opencv.imgcodecs.Imgcodecs.imwrite
 import org.opencv.imgproc.Imgproc.*
 import kotlin.math.*
@@ -48,7 +50,7 @@ fun getHoughLines(img : Mat, threshold : Int) : Mat {
     blur(imgGrey, imgGrey, Size(2.0, 2.0))
     Canny(imgGrey, edges, 255.0 / 3.0, 255.0)
     val lines = Mat()
-    HoughLines(edges, lines, 10.0, 15 * PI / 180, threshold)
+    HoughLines(edges, lines, 10.0, 10 * PI / 180, threshold)
     return lines
 }
 
@@ -128,19 +130,19 @@ fun blurGrey(img : Mat, kernel : Double, str : String) {
     Canny(imgGrey, edges, 255.0/3.0, 255.0)
     imwrite("${str}_${kernel}_edges.jpg", edges)
 }
-
+//TODO: Figure out if I should be using Point()s intead of DoublePoint()s
 /*
 h is the height of the original image, which is 2 * d for d the diagonal, i.e., 2 * sqrt(img.rows()^2+img.cols()^2)
 newSize shouldn't be changed atm.
  */
 fun normalizeHLine(r : Double, theta : Double, h : Double, newSize : Int = 180) : DoublePoint
-        = DoublePoint(doubleArrayOf(r / h * newSize, theta * newSize / PI))
+        = DoublePoint(doubleArrayOf(r / h * newSize, theta * newSize * 2.0 / PI))
 
 fun normalizeHSpace(lines : Mat, h : Double, newSize : Int = 180) : List<DoublePoint>
         = pointList(lines).map { normalizeHLine(it.point[0], it.point[1], h, newSize) }
 
 fun denormalizeHLine(r : Double, theta : Double, h : Double, normalized : Int = 180) : DoublePoint
-        = DoublePoint(doubleArrayOf(r / normalized.toDouble() * h, theta * PI / normalized))
+        = DoublePoint(doubleArrayOf(r / normalized.toDouble() * h, theta * PI / (normalized * 2.0)))
 
 fun denormalizeHSpace(lines : List<DoublePoint>, h : Double, normalized : Int = 180) : List<DoublePoint>
         = lines.map { denormalizeHLine(it.point[0], it.point[1], h, normalized) }
@@ -150,6 +152,15 @@ fun pointList(lines : Mat) : MutableList<DoublePoint> {
     for (i in 0 until lines.rows()) lineArray.add(DoublePoint(lines[i, 0]))
     return lineArray
 }
+
+/*
+fun easyPointList(lines : Mat) : List<DoublePoint> {
+    val linesMat = lines as MatOfPoint2f
+    return linesMat.toList().map { it.toDoublePoint() }
+}
+
+fun pointList(lines : Mat) : List<DoublePoint> = (lines as MatOfPoint2f).toList().map { it.toDoublePoint() }
+ */
 
 fun findClusters(lines : List<DoublePoint>) : MutableList<CentroidCluster<DoublePoint>>
         = KMeansPlusPlusClusterer<DoublePoint>(2).cluster(lines)
@@ -207,3 +218,135 @@ fun pruneCP(pts : CentroidCluster<DoublePoint>, cutoff : Double) : List<ClusterP
 
 fun prune(pts : List<ClusterPt>, cutoff : Double) : List<DoublePoint> = pruneCP(pts, cutoff).map { it.pt }
 fun prune(pts : CentroidCluster<DoublePoint>, cutoff : Double) : List<DoublePoint> = pruneCP(pts, cutoff).map { it.pt }
+
+
+fun genIntGrid(width : Int, height : Int) : List<DoublePoint> {
+    val l = mutableListOf<DoublePoint>()
+    for (i in 0..width) {
+        for (j in 0..height) {
+            l.add(DoublePoint(intArrayOf(i, j)))
+        }
+    }
+    return l
+}
+
+fun genGrid(width : Double, height : Double) : List<DoublePoint> {
+    return genIntGrid(9, 9).map {
+        DoublePoint(doubleArrayOf(it.point[0] * width / 9.0, it.point[1] * height / 9.0))
+    }
+}
+
+fun sortLines(lines : List<DoublePoint>) = lines.sortedBy { it.point[0] }
+
+fun Point.toDoublePoint() : DoublePoint = DoublePoint(doubleArrayOf(this.x, this.y))
+fun DoublePoint.toPoint() : Point = Point(this.point[0], this.point[1])
+
+fun intersections(lines1 : List<DoublePoint>, lines2: List<DoublePoint>) : List<DoublePoint> {
+    val pts = mutableListOf<DoublePoint>()
+    for (l1 in lines1) {
+        for (l2 in lines2) {
+            pts.add(intersection(l1.point[0], l1.point[1], l2.point[0], l2.point[1]).toDoublePoint())
+        }
+    }
+    return pts
+}
+/*
+calculates the point nearest to each in the lattice of ideal intersections.
+ */
+fun gridFit(grid : List<DoublePoint>, pts : List<DoublePoint>) : HashMap<DoublePoint, DoublePoint> {
+    val fits = HashMap<DoublePoint, DoublePoint>(grid.size)
+    for (pt in pts) {
+        for (gridPt in grid) {
+            if (fits.containsKey(gridPt)) {
+                val cand = fits[gridPt]!!
+                if (pt.dist(gridPt) < cand.dist(gridPt)) fits.put(gridPt, pt)
+            } else fits.put(gridPt, pt)
+        }
+    }
+    return fits
+}
+
+fun fitEval(fits : HashMap<DoublePoint, DoublePoint>,
+            eval : (HashMap<DoublePoint, DoublePoint>) -> Double
+                = { it.map { it.key.dist(it.value) }.sum() }
+            ) : Double {
+    return eval(fits)
+}
+
+fun calibrateProjection(corners : List<DoublePoint>, width : Double, height : Double) : Mat {
+    val cornerMat = MatOfPoint2f(*(corners.map { it.toPoint() }).toTypedArray())
+    val idealCorners = MatOfPoint2f(
+        Point(0.0, 0.0),
+        Point(width, 0.0),
+        Point(0.0, height),
+        Point(width, height))
+    return findHomography(cornerMat, idealCorners)
+}
+
+fun calibrateProjectionInverse(corners : List<DoublePoint>, width : Double, height : Double) : Mat {
+    val cornerMat = MatOfPoint2f(*(corners.map { it.toPoint() }).toTypedArray())
+    val idealCorners = MatOfPoint2f(
+        Point(0.0, 0.0),
+        Point(0.0, width),
+        Point(height, 0.0),
+        Point(width, height))
+    return findHomography(idealCorners, cornerMat)
+}
+
+fun transformPoints(pts : List<DoublePoint>, homography : Mat) : List<DoublePoint> {
+    val ptMat = MatOfPoint2f(*(pts.map { it.toPoint() }).toTypedArray())
+    val transMat = Mat()
+    perspectiveTransform(ptMat, transMat, homography)
+    return pointList(transMat)
+}
+
+/*
+Supposing lines1 and lines2 contain our respective clusters, this should be their outermost corner points.
+ */
+fun findCorners(lines1 : List<DoublePoint>, lines2 : List<DoublePoint>) : List<DoublePoint> {
+    return intersections(listOf<DoublePoint>(lines1[0], lines1[lines1.lastIndex]),
+                         listOf<DoublePoint>(lines2[0], lines2[lines2.lastIndex]))
+}
+
+fun orientCorners(corners : List<DoublePoint>) : List<DoublePoint> {
+    val firstSort = corners.sortedBy { it.point[1] }
+    if (firstSort[1].point[1] < firstSort[2].point[1])
+        return listOf(firstSort[1], firstSort[0], firstSort[3], firstSort[2])
+    else return firstSort
+}
+
+fun calculateGridFit(list1 : List<DoublePoint>,
+                     list2 : List<DoublePoint>,
+                     eval : (HashMap<DoublePoint, DoublePoint>) -> Double
+                        = { it.map { it.key.dist(it.value) }.sum() }
+                     ) : Double {
+    val corners = orientCorners(findCorners(list1, list2))
+    val intersectionPoints = intersections(list1, list2)
+    val idealGrid = genGrid(180.0, 180.0)
+    val homography = calibrateProjection(corners, 180.0, 180.0)
+    val transPoints = transformPoints(intersectionPoints, homography)
+    return fitEval(gridFit(idealGrid, transPoints), eval)
+}
+
+/*
+returns the corners of the best fit
+ */
+fun findBestFit(list1 : List<DoublePoint>, list2 : List<DoublePoint>) : List<DoublePoint> {
+    var bestFitMetric : Double = Double.MAX_VALUE
+    var bestValues : IntArray = intArrayOf()
+    for (i1 in 0 until (list1.lastIndex - 8)) {
+        for (i2 in list1.lastIndex downTo 8) {
+            for (j1 in 0 until (list2.lastIndex - 8)) {
+                for (j2 in list2.lastIndex downTo 8) { //efficiency!
+                    val metric = calculateGridFit(list1.subList(i1, i2), list2.subList(j1, j2))
+                    if (metric < bestFitMetric) {
+                        bestFitMetric = metric
+                        bestValues = intArrayOf(i1, i2, j1, j2)
+                    }
+                }
+            }
+        }
+    }
+    return orientCorners(findCorners(list1.subList(bestValues[0], bestValues[1]),
+                                     list2.subList(bestValues[2], bestValues[3])))
+}
